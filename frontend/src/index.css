@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+/* Tell Tailwind to use the manual .dark class instead of OS settings */
+@custom-variant dark (&:is(.dark *));
