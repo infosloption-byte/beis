@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import axios from '../lib/axios';
 import CustomSelect from '../components/CustomSelect';
 
@@ -12,9 +12,17 @@ export default function Users() {
   const [editingId, setEditingId] = useState(null);
 
   // --- EXPANDED FILTER STATE ---
+
+  const [searchParams] = useSearchParams();
+
   const [filters, setFilters] = useState({ 
-    search: '', role: '', status: '', profession: '' 
+    search: '', 
+    role: searchParams.get('role') || '', 
+    status: '', 
+    profession: '',
+    availability: searchParams.get('availability') || '' // 'air' or 'fill'
   });
+
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
 
@@ -64,29 +72,29 @@ export default function Users() {
   const filteredUsers = useMemo(() => {
     return users.filter(user => {
       const searchLower = filters.search.toLowerCase();
-      
-      // 1. Broad Search (Name, Email, Emp Number, Phone)
       const matchSearch = 
         (user.name?.toLowerCase().includes(searchLower)) || 
         (user.email?.toLowerCase().includes(searchLower)) ||
         (user.employee_number?.toLowerCase().includes(searchLower)) ||
         (user.phone?.toLowerCase().includes(searchLower));
         
-      // 2. Role Filter
       const userRole = user.roles?.[0]?.name || '';
       const matchRole = filters.role ? userRole === filters.role : true;
       
-      // 3. Status Filter
       let matchStatus = true;
       if (filters.status === 'Active') matchStatus = user.is_active === 1 || user.is_active === true;
       if (filters.status === 'Inactive') matchStatus = user.is_active === 0 || user.is_active === false;
 
-      // 4. Profession Filter
       const matchProfession = filters.profession 
         ? user.profession?.toLowerCase().includes(filters.profession.toLowerCase()) 
         : true;
 
-      return matchSearch && matchRole && matchStatus && matchProfession;
+      // --- ADDED AVAILABILITY FILTER ---
+      let matchAvailability = true;
+      if (filters.availability === 'air') matchAvailability = user.active_jobs === 0;
+      if (filters.availability === 'fill') matchAvailability = user.active_jobs > 0;
+
+      return matchSearch && matchRole && matchStatus && matchProfession && matchAvailability;
     });
   }, [users, filters]);
 

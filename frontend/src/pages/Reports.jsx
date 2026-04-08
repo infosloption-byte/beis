@@ -14,6 +14,7 @@ export default function Reports() {
     setIsLoading(true);
     try {
       let endpoint = '';
+      if (tab === 'general') endpoint = '/api/dashboard/general';
       if (tab === 'work-orders') endpoint = '/api/reports/work-orders';
       if (tab === 'technicians') endpoint = '/api/reports/technicians';
       if (tab === 'clients') endpoint = '/api/reports/clients-sites';
@@ -25,6 +26,26 @@ export default function Reports() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const renderGeneralReport = () => {
+    if (!data) return null;
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 animate-in fade-in duration-300">
+        <div className="bg-gray-50 dark:bg-gray-800/40 rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
+          <p className="text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Total System Users</p>
+          <h3 className="text-3xl font-black text-gray-900 dark:text-white leading-none">{data.total_users}</h3>
+        </div>
+        <div className="bg-gray-50 dark:bg-gray-800/40 rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
+          <p className="text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Total Managed Properties</p>
+          <h3 className="text-3xl font-black text-gray-900 dark:text-white leading-none">{data.total_properties}</h3>
+        </div>
+        <div className="bg-gray-50 dark:bg-gray-800/40 rounded-2xl p-6 border border-gray-100 dark:border-gray-800">
+          <p className="text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Total Work Orders</p>
+          <h3 className="text-3xl font-black text-gray-900 dark:text-white leading-none">{data.total_jobs}</h3>
+        </div>
+      </div>
+    );
   };
 
   const renderWorkOrdersReport = () => {
@@ -310,6 +331,12 @@ export default function Reports() {
         {/* Sub-menu Tabs */}
         <div className="flex flex-wrap gap-2 mb-8 bg-gray-50 dark:bg-gray-800/50 p-1.5 rounded-xl border border-gray-100 dark:border-gray-800 w-fit">
           <button 
+            onClick={() => setActiveTab('general')} 
+            className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-all duration-200 ${activeTab === 'general' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
+          >
+            General Overview
+          </button>
+          <button 
             onClick={() => setActiveTab('work-orders')} 
             className={`px-6 py-2.5 text-sm font-bold rounded-lg transition-all duration-200 ${activeTab === 'work-orders' ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400'}`}
           >
@@ -337,6 +364,7 @@ export default function Reports() {
              </div>
           ) : (
             <>
+              {activeTab === 'general' && renderGeneralReport()}
               {activeTab === 'work-orders' && renderWorkOrdersReport()}
               {activeTab === 'technicians' && renderTechniciansReport()}
               {activeTab === 'clients' && renderClientsReport()}

@@ -52,12 +52,20 @@ export default function Layout() {
   };
 
   const isAdmin = user?.roles?.some(role => role === 'Admin' || role?.name === 'Admin');
+  const isClient = user?.roles?.some(role => role === 'Client' || role?.name === 'Client');
 
   // --- UPDATED NAVIGATION ITEMS ---
   const navItems = [
     { name: 'Dashboard', path: '/', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
     { name: 'Job Sites', path: '/properties', icon: 'M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4' },
     { name: 'Work Orders', path: '/jobs', icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+    { name: 'Kanban Board', path: '/kanban', icon: 'M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2' },
+    { name: 'Schedule Calendar', path: '/calendar', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
+    // Only show Timesheets if the user is NOT a client
+    ...(!isClient ? [
+      { name: 'Timesheets', path: '/timesheets', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' }
+    ] : []),
+    // Only show Admin items if the user IS an admin
     ...(isAdmin ? [
       { name: 'Clients & Users', path: '/users', icon: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
       { name: 'Reports & Analytics', path: '/reports', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' }
@@ -76,6 +84,9 @@ export default function Layout() {
       case '/': return { title: <><span className="font-normal">Welcome back, </span><span className="font-bold">{user?.name?.split(' ')[0]}!</span></>, sub: "Here is what's happening across your facilities today." };
       case '/properties': return { title: "Manage Job Sites", sub: "Manage all service locations and facility details." };
       case '/jobs': return { title: "Manage Work Orders", sub: "Track and manage all maintenance requests." };
+      case '/kanban': return { title: "Kanban Board", sub: "Drag and drop work orders to update their status." };
+      case '/calendar': return { title: "Schedule Calendar", sub: "Visual timeline of upcoming and ongoing work." };
+      case '/timesheets': return { title: "Employee Timesheets", sub: "Track logged hours and work order durations." };
       case '/users': return { title: "Manage Clients & Users", sub: "Manage clients & system access and field staff." };
       case '/reports': return { title: "Reports & Analytics", sub: "Analyze platform usage, resource allocation, and operational metrics." };
       default: return { title: navItems.find(item => item.path === location.pathname)?.name || 'BEIS', sub: '' };

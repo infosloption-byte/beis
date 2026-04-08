@@ -5,18 +5,31 @@ namespace App\Http\Controllers;
 use App\Models\Property;
 use App\Models\Attachment;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Storage; // Added Storage facade
+use Illuminate\Support\Facades\Storage;
 
 class PropertyController extends Controller
 {
     public function index(Request $request)
     {
         $user = $request->user();
-        // Include attachments when loading lists
+        
+        $query = Property::with('client')
+            ->withCount('jobs')
+            ->withCount(['jobs as active_jobs_count' => function ($query) {
+                $query->whereNotIn('status', ['Completed', 'Closed']);
+            }])->latest();
+
+        // Security Filters based on Role
         if ($user->hasRole('Client')) {
-            return response()->json($user->properties()->with(['attachments'])->withCount('jobs')->latest()->get());
+            $query->where('client_id', $user->id);
+        } elseif ($user->hasRole('Employee')) {
+            // Employees only see properties where they have at least one job assigned
+            $query->whereHas('jobs', function ($q) use ($user) {
+                $q->where('assigned_to', $user->id);
+            });
         }
-        return response()->json(Property::with(['client', 'attachments'])->withCount('jobs')->latest()->get());
+
+        return response()->json($query->get());
     }
 
     public function store(Request $request)
@@ -40,14 +53,10 @@ class PropertyController extends Controller
 
         $validated['address'] = $request->street . ' ' . $request->block_number;
 
-        // 1. Create the Property first so we get its unique ID
         $property = Property::create($validated);
-
-        // 2. Create a dedicated Workspace folder for this Job Site
         $workspacePath = "properties/{$property->id}";
         Storage::disk('public')->makeDirectory($workspacePath);
 
-        // 3. Handle multiple new images
         if ($request->hasFile('images')) {
             foreach ($request->file('images') as $file) {
                 $path = $file->store($workspacePath, 'public');
@@ -69,7 +78,6 @@ class PropertyController extends Controller
 
     public function update(Request $request, Property $property)
     {
-        // When using multipart/form-data from React, we send a POST with _method=PUT.
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'type' => 'required|in:Apartment,Commercial,Office,Warehouse,Other',
@@ -91,16 +99,14 @@ class PropertyController extends Controller
         $property->update($request->except(['images', 'deleted_attachments']));
         $workspacePath = "properties/{$property->id}";
 
-        // 1. Delete removed images
         if ($request->has('deleted_attachments')) {
             $attachmentsToDelete = Attachment::whereIn('id', $request->deleted_attachments)->get();
             foreach ($attachmentsToDelete as $attachment) {
                 Storage::disk('public')->delete($attachment->file_path);
-                $attachment->delete(); // This triggers the Audit Log!
+                $attachment->delete(); 
             }
         }
 
-        // 2. Add new images
         if ($request->hasFile('images')) {
             foreach ($request->file('images') as $file) {
                 $path = $file->store($workspacePath, 'public');

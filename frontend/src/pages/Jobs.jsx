@@ -1,9 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import axios from '../lib/axios';
 import CustomSelect from '../components/CustomSelect';
+import { useAuthStore } from '../store/authStore';
 
 export default function Jobs() {
+  const { user } = useAuthStore();
+  const isAdmin = user?.roles?.some(r => r.name === 'Admin' || r === 'Admin');
+
+  const [searchParams] = useSearchParams();
+
   const [jobs, setJobs] = useState([]);
   const [properties, setProperties] = useState([]);
   const [clients, setClients] = useState([]);
@@ -14,8 +20,9 @@ export default function Jobs() {
   const [activeTab, setActiveTab] = useState('list');
   const [editingId, setEditingId] = useState(null);
 
+  // --- FILTERS & PAGINATION ---
   const [filters, setFilters] = useState({
-    search: '', property: '', client: '', priority: '', status: ''
+    search: '', property: '', client: '', priority: searchParams.get('priority') || '', status: searchParams.get('status') || ''
   });
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -25,17 +32,15 @@ export default function Jobs() {
   const [jobToAssign, setJobToAssign] = useState(null);
   const [selectedTechId, setSelectedTechId] = useState('');
   const [isAssigning, setIsAssigning] = useState(false);
-  
-  // Assignment Filters
   const [assignSearchQuery, setAssignSearchQuery] = useState('');
-  const [assignAvailability, setAssignAvailability] = useState('all'); // 'all', 'zero_active', 'no_overlap'
+  const [assignAvailability, setAssignAvailability] = useState('all'); 
   const [assignProfession, setAssignProfession] = useState('');
   const [assignSkills, setAssignSkills] = useState([]);
 
+  // --- FORM STATE ---
   const defaultFormState = {
     title: '', property_id: '', client_id: '', assigned_to: '',
-    priority: 'Medium', status: 'Requested', description: '',
-    start_date: '', end_date: ''
+    priority: 'Medium', status: 'Requested', description: '', start_date: '', end_date: ''
   };
 
   const [formData, setFormData] = useState(defaultFormState);
@@ -49,14 +54,18 @@ export default function Jobs() {
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [jobsRes, propsRes, usersRes] = await Promise.all([
-        axios.get('/api/jobs'), axios.get('/api/properties'), axios.get('/api/users')
-      ]);
-      setJobs(jobsRes.data);
-      setProperties(propsRes.data);
-      const allUsers = usersRes.data;
-      setClients(allUsers.filter(u => u.roles?.some(r => (r.name || r).toLowerCase() === 'client')));
-      setTechnicians(allUsers.filter(u => u.roles?.some(r => (r.name || r).toLowerCase() === 'employee')));
+      const requests = [axios.get('/api/jobs'), axios.get('/api/properties')];
+      if (isAdmin) requests.push(axios.get('/api/users'));
+
+      const responses = await Promise.all(requests);
+      setJobs(responses[0].data);
+      setProperties(responses[1].data);
+      
+      if (isAdmin) {
+        const allUsers = responses[2].data;
+        setClients(allUsers.filter(u => u.roles?.some(r => (r.name || r).toLowerCase() === 'client')));
+        setTechnicians(allUsers.filter(u => u.roles?.some(r => (r.name || r).toLowerCase() === 'employee')));
+      }
     } catch (err) {
       console.error(err);
       setError('Failed to load data.');
@@ -82,7 +91,10 @@ export default function Jobs() {
       const matchProperty = filters.property ? String(job.property_id) === String(filters.property) : true;
       const matchClient = filters.client ? String(job.client_id) === String(filters.client) : true;
       const matchPriority = filters.priority ? job.priority === filters.priority : true;
-      const matchStatus = filters.status ? job.status === filters.status : true;
+      const matchStatus = filters.status 
+        ? (filters.status === 'Unassigned' ? (!job.assigned_to || job.status === 'Unassigned') : job.status === filters.status)
+        : true;
+
       return matchSearch && matchProperty && matchClient && matchPriority && matchStatus;
     });
   }, [jobs, filters]);
@@ -90,25 +102,19 @@ export default function Jobs() {
   const totalPages = Math.max(1, Math.ceil(filteredJobs.length / rowsPerPage));
   const paginatedJobs = filteredJobs.slice((currentPage - 1) * rowsPerPage, currentPage * rowsPerPage);
 
-  // --- SMART ASSIGNMENT LOGIC ---
+  // --- SMART ASSIGNMENT LOGIC (ADMIN ONLY) ---
   const openAssignModal = (job) => {
+    if (!isAdmin) return;
     setJobToAssign(job);
     setSelectedTechId(job.assigned_to ? String(job.assigned_to) : '');
-    // Reset Filters
-    setAssignSearchQuery('');
-    setAssignAvailability('all');
-    setAssignProfession('');
-    setAssignSkills([]);
+    setAssignSearchQuery(''); setAssignAvailability('all'); setAssignProfession(''); setAssignSkills([]);
     setIsAssignModalOpen(true);
   };
 
-  const closeAssignModal = () => {
-    setIsAssignModalOpen(false);
-    setJobToAssign(null);
-  };
+  const closeAssignModal = () => { setIsAssignModalOpen(false); setJobToAssign(null); };
 
   const handleAssignTechnician = async () => {
-    if (!selectedTechId || !jobToAssign) return;
+    if (!selectedTechId || !jobToAssign || !isAdmin) return;
     setIsAssigning(true);
     try {
       const response = await axios.post(`/api/jobs/${jobToAssign.id}/assign`, { assigned_to: selectedTechId });
@@ -121,85 +127,54 @@ export default function Jobs() {
     }
   };
 
-  // Extract unique professions & skills from the tech pool
   const uniqueProfessions = useMemo(() => [...new Set(technicians.map(t => t.profession).filter(Boolean))], [technicians]);
   const uniqueSkills = useMemo(() => [...new Set(technicians.flatMap(t => t.skills || []))], [technicians]);
+  const toggleAssignSkill = (skill) => setAssignSkills(prev => prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]);
 
-  const toggleAssignSkill = (skill) => {
-    setAssignSkills(prev => prev.includes(skill) ? prev.filter(s => s !== skill) : [...prev, skill]);
-  };
-
-  // Compute Active Jobs and Filter Technicians
   const techniciansWithStats = useMemo(() => {
     return technicians.map(tech => {
-      // Find all active jobs for this tech (not completed/closed)
-      const techActiveJobs = jobs.filter(j => 
-        String(j.assigned_to) === String(tech.id) && 
-        !['Completed', 'Closed'].includes(j.status)
-      );
-
-      // Check for overlap with the currently selected job
+      const techActiveJobs = jobs.filter(j => String(j.assigned_to) === String(tech.id) && !['Completed', 'Closed'].includes(j.status));
       let hasOverlap = false;
       if (jobToAssign?.start_date && jobToAssign?.end_date) {
         const targetStart = new Date(jobToAssign.start_date).getTime();
         const targetEnd = new Date(jobToAssign.end_date).getTime();
-
         hasOverlap = techActiveJobs.some(j => {
           if (!j.start_date || !j.end_date) return false;
-          const s = new Date(j.start_date).getTime();
-          const e = new Date(j.end_date).getTime();
-          return (targetStart < e && targetEnd > s); // Time intersection formula
+          return (targetStart < new Date(j.end_date).getTime() && targetEnd > new Date(j.start_date).getTime()); 
         });
       }
-
       return { ...tech, activeJobsCount: techActiveJobs.length, hasOverlap };
     });
   }, [technicians, jobs, jobToAssign]);
 
   const filteredTechnicians = techniciansWithStats.filter(tech => {
-    // 1. Search Query
     const matchSearch = tech.name.toLowerCase().includes(assignSearchQuery.toLowerCase());
-    // 2. Profession
     const matchProfession = assignProfession ? tech.profession === assignProfession : true;
-    // 3. Skills (Must have ALL selected skills)
     const matchSkills = assignSkills.length === 0 || assignSkills.every(skill => (tech.skills || []).includes(skill));
-    // 4. Availability
     let matchAvailability = true;
     if (assignAvailability === 'zero_active') matchAvailability = tech.activeJobsCount === 0;
     if (assignAvailability === 'no_overlap') matchAvailability = !tech.hasOverlap;
-
     return matchSearch && matchProfession && matchSkills && matchAvailability;
   });
 
-
   // --- FORM HANDLERS ---
   const handleEditClick = (job) => {
+    if (!isAdmin) return;
     setFormData({
-      title: job.title || '',
-      property_id: job.property_id ? String(job.property_id) : '',
-      client_id: job.client_id ? String(job.client_id) : '',
-      assigned_to: job.assigned_to ? String(job.assigned_to) : '',
-      priority: job.priority || 'Medium',
-      status: job.status || 'Requested',
-      description: job.description || '',
+      title: job.title || '', property_id: job.property_id ? String(job.property_id) : '',
+      client_id: job.client_id ? String(job.client_id) : '', assigned_to: job.assigned_to ? String(job.assigned_to) : '',
+      priority: job.priority || 'Medium', status: job.status || 'Requested', description: job.description || '',
       start_date: job.start_date ? new Date(job.start_date).toISOString().slice(0, 16) : '',
       end_date: job.end_date ? new Date(job.end_date).toISOString().slice(0, 16) : ''
     });
-    setEditingId(job.id);
-    setExistingImages(job.attachments || []);
-    setNewImages([]);
-    setDeletedAttachmentIds([]);
+    setEditingId(job.id); setExistingImages(job.attachments || []); setNewImages([]); setDeletedAttachmentIds([]);
     setActiveTab('add');
   };
 
   const handleTabSwitch = (tab) => {
+    if (tab === 'add' && !isAdmin) return; 
     if (tab === 'list' || (tab === 'add' && editingId)) {
-      setFormData(defaultFormState);
-      setEditingId(null);
-      setNewImages([]);
-      setExistingImages([]);
-      setDeletedAttachmentIds([]);
-      setError('');
+      setFormData(defaultFormState); setEditingId(null); setNewImages([]); setExistingImages([]); setDeletedAttachmentIds([]); setError('');
     }
     setActiveTab(tab);
   };
@@ -216,22 +191,14 @@ export default function Jobs() {
     });
   };
 
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files.length > 0) setNewImages(prev => [...prev, ...Array.from(e.target.files)]);
-    e.target.value = ''; 
-  };
-
+  const handleFileChange = (e) => { if (e.target.files && e.target.files.length > 0) setNewImages(prev => [...prev, ...Array.from(e.target.files)]); e.target.value = ''; };
   const removeNewImage = (index) => setNewImages(prev => prev.filter((_, i) => i !== index));
-  const removeExistingImage = (attachmentId) => {
-    setDeletedAttachmentIds(prev => [...prev, attachmentId]);
-    setExistingImages(prev => prev.filter(img => img.id !== attachmentId));
-  };
+  const removeExistingImage = (attachmentId) => { setDeletedAttachmentIds(prev => [...prev, attachmentId]); setExistingImages(prev => prev.filter(img => img.id !== attachmentId)); };
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    setIsSubmitting(true);
-    setError('');
-
+    if (!isAdmin) return;
+    setIsSubmitting(true); setError('');
     const submitData = new FormData();
     Object.keys(formData).forEach(key => submitData.append(key, formData[key] === null ? '' : formData[key]));
     newImages.forEach(file => submitData.append('images[]', file));
@@ -244,10 +211,9 @@ export default function Jobs() {
       } else {
         await axios.post('/api/jobs', submitData, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
-      handleTabSwitch('list');
-      await fetchData();
+      handleTabSwitch('list'); await fetchData();
     } catch (err) {
-      setError(`Failed to ${editingId ? 'update' : 'create'} job. Validation error.`);
+      setError(`Failed to ${editingId ? 'update' : 'create'} job.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -280,8 +246,8 @@ export default function Jobs() {
     <div className="space-y-6 max-w-7xl mx-auto pt-2 pb-12 relative">
       {error && <div className="rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700 border border-red-100">{error}</div>}
 
-      {/* --- ADVANCED ASSIGNMENT MODAL OVERLAY --- */}
-      {isAssignModalOpen && (
+      {/* --- ADVANCED ASSIGNMENT MODAL OVERLAY (ADMIN ONLY) --- */}
+      {isAssignModalOpen && isAdmin && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] w-full max-w-5xl p-6 sm:p-8 shadow-2xl border border-gray-100 dark:border-gray-800 slide-in-from-bottom-4 flex flex-col max-h-[90vh]">
             
@@ -302,8 +268,6 @@ export default function Jobs() {
               
               {/* Left Sidebar: Advanced Filters */}
               <div className="w-full md:w-1/3 flex flex-col gap-5 overflow-y-auto custom-scrollbar pr-2 pb-4">
-                
-                {/* Search */}
                 <div>
                   <div className="relative">
                     <svg className="absolute left-4 top-3 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -337,7 +301,6 @@ export default function Jobs() {
                   </div>
                 </div>
 
-                {/* Profession Dropdown */}
                 {uniqueProfessions.length > 0 && (
                   <div>
                     <label className="block text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Filter by Profession</label>
@@ -348,7 +311,6 @@ export default function Jobs() {
                   </div>
                 )}
 
-                {/* Skills Multi-Select Pills */}
                 {uniqueSkills.length > 0 && (
                   <div>
                     <label className="block text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Required Skills</label>
@@ -368,7 +330,6 @@ export default function Jobs() {
                     </div>
                   </div>
                 )}
-
               </div>
 
               {/* Right Side: Results List */}
@@ -419,7 +380,6 @@ export default function Jobs() {
                             </div>
                             
                             <div className="flex flex-col items-end gap-1 shrink-0">
-                              {/* Active Jobs Badge */}
                               <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border ${
                                 tech.activeJobsCount === 0 
                                   ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800' 
@@ -430,7 +390,6 @@ export default function Jobs() {
                                 {tech.activeJobsCount} Active Job{tech.activeJobsCount !== 1 ? 's' : ''}
                               </span>
                               
-                              {/* Schedule Conflict Warning */}
                               {tech.hasOverlap && (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-900/20 px-1.5 py-0.5 rounded border border-orange-200 dark:border-orange-800/50">
                                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
@@ -440,7 +399,6 @@ export default function Jobs() {
                             </div>
                           </div>
 
-                          {/* Render matching skills lightly */}
                           {tech.skills && tech.skills.length > 0 && (
                              <div className="mt-2 flex flex-wrap gap-1">
                                {tech.skills.map((s, idx) => (
@@ -459,7 +417,6 @@ export default function Jobs() {
 
             </div>
 
-            {/* Modal Actions Footer */}
             <div className="flex justify-end gap-3 mt-6 pt-6 border-t border-gray-100 dark:border-gray-800 shrink-0">
               <button onClick={closeAssignModal} className="px-6 py-2.5 text-sm font-bold text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800 rounded-xl transition-colors">
                 Cancel
@@ -473,22 +430,25 @@ export default function Jobs() {
         </div>
       )}
 
-      {/* --- MAIN PAGE CONTENT --- */}
+      {/* MAIN COMPONENT START */}
       <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 sm:p-8 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border-0 flex flex-col relative min-h-[500px]">
         
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 mb-8 border-b border-gray-100 dark:border-gray-800/60 pb-6">
           <div>
             <h2 className="text-xl font-bold text-gray-900 dark:text-white tracking-tight">
-              {activeTab === 'list' ? 'Work Orders' : (editingId ? 'Edit Work Order' : 'Create Work Order')}
+              {activeTab === 'list' ? (isAdmin ? 'Work Orders' : 'My Work Orders') : (editingId ? 'Edit Work Order' : 'Create Work Order')}
             </h2>
             <p className="mt-1 text-sm font-medium text-gray-500 dark:text-gray-400">
-              {activeTab === 'list' ? 'Manage and track all work orders.' : 'Create a new work order and dispatch technicians.'}
+              {activeTab === 'list' ? 'View and track your maintenance requests.' : 'Create a new work order and dispatch technicians.'}
             </p>
           </div>
-          <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit shrink-0">
-            <button onClick={() => handleTabSwitch('list')} className={`px-5 py-2 text-sm font-bold rounded-lg transition-all duration-200 ${activeTab === 'list' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Work Order List</button>
-            <button onClick={() => handleTabSwitch('add')} className={`px-5 py-2 text-sm font-bold rounded-lg transition-all duration-200 ${activeTab === 'add' && !editingId ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>New Work Order</button>
-          </div>
+          
+          {isAdmin && (
+            <div className="flex bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-fit shrink-0">
+              <button onClick={() => handleTabSwitch('list')} className={`px-5 py-2 text-sm font-bold rounded-lg transition-all duration-200 ${activeTab === 'list' ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Work Order List</button>
+              <button onClick={() => handleTabSwitch('add')} className={`px-5 py-2 text-sm font-bold rounded-lg transition-all duration-200 ${activeTab === 'add' && !editingId ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>New Work Order</button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1">
@@ -505,11 +465,15 @@ export default function Jobs() {
                     <label className="block text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Property</label>
                     <CustomSelect options={[{ value: '', label: 'All Properties' }, ...properties.map(p => ({ value: String(p.id), label: p.name, name: 'property' }))]} value={filters.property} onChange={handleFilterChange} placeholder="All Properties" />
                   </div>
-                  <div>
-                    <label className="block text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Client</label>
-                    <CustomSelect options={[{ value: '', label: 'All Clients' }, ...clients.map(c => ({ value: String(c.id), label: c.name, name: 'client' }))]} value={filters.client} onChange={handleFilterChange} placeholder="All Clients" />
-                  </div>
-                  <div>
+                  
+                  {isAdmin && (
+                    <div>
+                      <label className="block text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Client</label>
+                      <CustomSelect options={[{ value: '', label: 'All Clients' }, ...clients.map(c => ({ value: String(c.id), label: c.name, name: 'client' }))]} value={filters.client} onChange={handleFilterChange} placeholder="All Clients" />
+                    </div>
+                  )}
+
+                  <div className={isAdmin ? "" : "lg:col-span-2"}>
                     <label className="block text-[11px] font-black text-gray-400 uppercase tracking-wider mb-2">Priority</label>
                     <CustomSelect options={[{ value: '', label: 'All Priorities', name: 'priority' }, { value: 'Low', label: 'Low', name: 'priority' }, { value: 'Medium', label: 'Medium', name: 'priority' }, { value: 'High', label: 'High', name: 'priority' }, { value: 'Emergency', label: 'Emergency', name: 'priority' }]} value={filters.priority} onChange={handleFilterChange} placeholder="All Priorities" />
                   </div>
@@ -583,7 +547,7 @@ export default function Jobs() {
 
                           <td className="p-4 whitespace-nowrap">
                             <div className="text-sm font-bold text-gray-900 dark:text-gray-200">{job.property?.name || 'Unknown'}</div>
-                            <div className="text-xs font-medium text-gray-500 mt-1">{job.client?.name || 'System Admin'}</div>
+                            <div className="text-xs font-medium text-gray-500 mt-1">{job.client?.name || 'Client System'}</div>
                           </td>
 
                           <td className="p-4 whitespace-nowrap">
@@ -603,14 +567,18 @@ export default function Jobs() {
 
                           <td className="p-4 whitespace-nowrap text-right">
                             <div className="flex items-center justify-end gap-2">
-                              <button onClick={() => openAssignModal(job)} className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 dark:hover:text-green-400 rounded-lg transition-all" title="Assign Technician">
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
-                              </button>
-                              <button onClick={() => handleEditClick(job)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 dark:hover:text-blue-400 rounded-lg transition-all" title="Edit">
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
-                              </button>
+                              {isAdmin && (
+                                <>
+                                  <button onClick={() => openAssignModal(job)} className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 dark:hover:text-green-400 rounded-lg transition-all" title="Assign Technician">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4 19.235v-.11a6.375 6.375 0 0112.75 0v.109A12.318 12.318 0 0110.374 21c-2.331 0-4.512-.645-6.374-1.766z" /></svg>
+                                  </button>
+                                  <button onClick={() => handleEditClick(job)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 dark:hover:text-blue-400 rounded-lg transition-all" title="Edit">
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                  </button>
+                                </>
+                              )}
                               <Link to={`/jobs/${job.id}`} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 dark:hover:text-blue-400 rounded-lg transition-all" title="View Board">
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
                               </Link>
                             </div>
                           </td>
@@ -650,8 +618,8 @@ export default function Jobs() {
             </div>
           )}
 
-          {/* ADD / EDIT FORM */}
-          {activeTab === 'add' && (
+          {/* ADD / EDIT FORM (ADMIN ONLY) */}
+          {activeTab === 'add' && isAdmin && (
             <form onSubmit={handleFormSubmit} className="space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 

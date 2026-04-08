@@ -1,14 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from '../lib/axios';
+import { useAuthStore } from '../store/authStore';
 
 export default function PropertyDetails() {
   const { id } = useParams();
+  const { user } = useAuthStore();
+  const isAdmin = user?.roles?.some(r => r.name === 'Admin' || r === 'Admin');
+  const isEmployee = user?.roles?.some(r => r.name === 'Employee' || r === 'Employee');
+
   const [property, setProperty] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   
-  // Lightbox State
   const [lightboxIndex, setLightboxIndex] = useState(null);
 
   useEffect(() => {
@@ -29,16 +33,20 @@ export default function PropertyDetails() {
   if (isLoading) return <div className="flex h-[50vh] items-center justify-center"><div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"></div></div>;
   if (error || !property) return <div className="text-center p-12 text-red-500 font-bold">{error || 'Property not found'}</div>;
 
-  // Generate an Activity Timeline from the Jobs array
+  // Filter Jobs based on role
+  // Employees only see jobs assigned to them. Admins see all.
+  const visibleJobs = isEmployee 
+    ? (property.jobs || []).filter(j => j.assigned_to === user.id) 
+    : (property.jobs || []);
+
   const generateTimeline = () => {
     let events = [];
-    property.jobs?.forEach(job => {
+    visibleJobs.forEach(job => {
       events.push({ id: `c-${job.id}`, date: new Date(job.created_at), type: 'created', text: `Work Order #${job.id} requested: ${job.title}` });
       if (job.status === 'Completed' && job.updated_at) {
         events.push({ id: `d-${job.id}`, date: new Date(job.updated_at), type: 'completed', text: `Work Order #${job.id} was completed.` });
       }
     });
-    // Sort newest first
     return events.sort((a, b) => b.date - a.date);
   };
 
@@ -46,14 +54,13 @@ export default function PropertyDetails() {
   const images = property?.attachments || [];
   const hasImages = images.length > 0;
 
-  // Lightbox Handlers
   const openLightbox = (index) => setLightboxIndex(index);
   const closeLightbox = () => setLightboxIndex(null);
   const nextImage = (e) => { e.stopPropagation(); setLightboxIndex((prev) => (prev + 1) % images.length); };
   const prevImage = (e) => { e.stopPropagation(); setLightboxIndex((prev) => (prev - 1 + images.length) % images.length); };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pt-2 pb-12 relative">
+    <div className="space-y-6 max-w-7xl mx-auto pt-2 pb-12 relative animate-in fade-in duration-300">
       
       {/* Lightbox Modal */}
       {lightboxIndex !== null && (
@@ -61,26 +68,17 @@ export default function PropertyDetails() {
           <button className="absolute top-6 right-6 text-white hover:text-gray-300 transition-colors" onClick={closeLightbox}>
             <svg className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
-          
           {images.length > 1 && (
             <button className="absolute left-6 text-white hover:text-gray-300 p-4 transition-transform hover:-translate-x-1" onClick={prevImage}>
               <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
           )}
-
-          <img 
-            src={`http://localhost:8000/storage/${images[lightboxIndex].file_path}`} 
-            alt="Property Fullscreen" 
-            className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl" 
-            onClick={(e) => e.stopPropagation()} 
-          />
-
+          <img src={`http://localhost:8000/storage/${images[lightboxIndex].file_path}`} alt="Property Fullscreen" className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
           {images.length > 1 && (
             <button className="absolute right-6 text-white hover:text-gray-300 p-4 transition-transform hover:translate-x-1" onClick={nextImage}>
               <svg className="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
           )}
-          
           <div className="absolute bottom-6 text-white font-bold tracking-widest text-sm bg-black/50 px-4 py-1.5 rounded-full">
              {lightboxIndex + 1} / {images.length}
           </div>
@@ -89,8 +87,6 @@ export default function PropertyDetails() {
 
       {/* Top Banner / Hero Card */}
       <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex flex-col md:flex-row gap-8 items-start md:items-center border border-gray-100 dark:border-gray-800/60">
-        
-        {/* Cover Image Thumbnail */}
         <div className="shrink-0 cursor-pointer" onClick={() => hasImages && openLightbox(0)}>
           {hasImages ? (
             <div className="relative group overflow-hidden rounded-2xl">
@@ -140,22 +136,25 @@ export default function PropertyDetails() {
         {/* Left Column: Details & Work Orders */}
         <div className="lg:col-span-2 space-y-6">
           
-          {/* Info Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60">
-              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Client Ownership</h3>
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-700 dark:text-blue-400 font-bold text-lg">
-                  {property.client?.name?.charAt(0) || 'C'}
-                </div>
-                <div>
-                  <p className="text-base font-bold text-gray-900 dark:text-white">{property.client?.name || 'Unassigned'}</p>
-                  <p className="text-sm font-medium text-gray-500">{property.client?.email || 'No email on file'}</p>
+            
+            {/* Sensitive Data: Only show Client details if Admin */}
+            {isAdmin && (
+              <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60">
+                <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Client Ownership</h3>
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center text-blue-700 dark:text-blue-400 font-bold text-lg">
+                    {property.client?.name?.charAt(0) || 'C'}
+                  </div>
+                  <div>
+                    <p className="text-base font-bold text-gray-900 dark:text-white">{property.client?.name || 'Unassigned'}</p>
+                    <p className="text-sm font-medium text-gray-500">{property.client?.email || 'No email on file'}</p>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
             
-            <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60">
+            <div className={`bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60 ${!isAdmin && 'md:col-span-2'}`}>
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">On-Site Contact</h3>
               <div className="space-y-1">
                 <p className="text-base font-bold text-gray-900 dark:text-white">{property.contact_person || 'No Contact Specified'}</p>
@@ -165,11 +164,13 @@ export default function PropertyDetails() {
             </div>
           </div>
 
-          {/* Associated Work Orders Table */}
+          {/* Associated Work Orders Table (Filtered) */}
           <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">Associated Work Orders</h3>
-              <Link to="/jobs" className="text-sm font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400">View All &rarr;</Link>
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white">
+                {isAdmin ? 'Associated Work Orders' : 'My Work Orders Here'}
+              </h3>
+              <Link to="/jobs" className="text-sm font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400">View Board &rarr;</Link>
             </div>
             
             <div className="overflow-x-auto">
@@ -183,10 +184,10 @@ export default function PropertyDetails() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50 dark:divide-gray-800/50">
-                  {property.jobs?.length === 0 ? (
-                    <tr><td colSpan="4" className="py-6 text-center text-sm font-medium text-gray-500">No work orders recorded for this site.</td></tr>
+                  {visibleJobs.length === 0 ? (
+                    <tr><td colSpan="4" className="py-6 text-center text-sm font-medium text-gray-500">No relevant work orders recorded.</td></tr>
                   ) : (
-                    property.jobs?.map(job => (
+                    visibleJobs.map(job => (
                       <tr key={job.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                         <td className="py-3 whitespace-nowrap">
                           <p className="text-sm font-bold text-gray-900 dark:text-white">#{job.id} - {job.title}</p>
@@ -199,7 +200,7 @@ export default function PropertyDetails() {
                           {job.technician?.name || 'Unassigned'}
                         </td>
                         <td className="py-3 whitespace-nowrap text-right">
-                          <Link to={`/jobs/${job.id}`} className="text-sm font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400">Board &rarr;</Link>
+                          <Link to={`/jobs/${job.id}`} className="text-sm font-bold text-blue-600 hover:text-blue-800 dark:text-blue-400">Open &rarr;</Link>
                         </td>
                       </tr>
                     ))
@@ -211,7 +212,7 @@ export default function PropertyDetails() {
 
         </div>
 
-        {/* Right Column: Activity Timeline */}
+        {/* Right Column: Activity Timeline (Filtered) */}
         <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60 h-fit">
           <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-6">Site Activity Timeline</h3>
           

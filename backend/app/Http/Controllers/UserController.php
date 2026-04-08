@@ -17,7 +17,15 @@ class UserController extends Controller
         if (!$request->user()->hasRole('Admin')) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-        return response()->json(User::with('roles')->latest()->get());
+        
+        // ADDED: withCount for active_jobs so the React frontend can filter the Air/Fill tables!
+        $users = User::with('roles')
+            ->withCount(['jobs as active_jobs' => function ($query) {
+                $query->whereNotIn('status', ['Completed', 'Closed']);
+            }])
+            ->latest()->get();
+
+        return response()->json($users);
     }
 
     public function store(Request $request)

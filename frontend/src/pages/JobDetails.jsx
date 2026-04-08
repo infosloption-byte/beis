@@ -2,9 +2,13 @@ import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from '../lib/axios';
 import CustomSelect from '../components/CustomSelect';
+import { useAuthStore } from '../store/authStore';
 
 export default function JobDetails() {
   const { id } = useParams();
+  const { user } = useAuthStore();
+  const isClient = user?.roles?.some(r => r.name === 'Client' || r === 'Client');
+
   const [job, setJob] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -24,7 +28,7 @@ export default function JobDetails() {
       setNewStatus(response.data.status);
     } catch (err) {
       console.error(err);
-      setError('Failed to load job details.');
+      setError('Failed to load job details. You may not have permission.');
     } finally {
       setIsLoading(false);
     }
@@ -42,7 +46,7 @@ export default function JobDetails() {
       setJob(response.data.job);
       setUpdateNote(''); 
     } catch (err) {
-      alert('Failed to update status.');
+      alert('Failed to update status. You may not be assigned to this job.');
     } finally {
       setIsUpdating(false);
     }
@@ -73,7 +77,7 @@ export default function JobDetails() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto pt-2 pb-12 relative">
+    <div className="space-y-6 max-w-7xl mx-auto pt-2 pb-12 relative animate-in fade-in duration-300">
       
       {/* Lightbox Modal */}
       {lightboxIndex !== null && (
@@ -135,7 +139,7 @@ export default function JobDetails() {
 
         <div className="shrink-0 flex flex-col gap-3 w-full md:w-auto">
           <Link to="/jobs" className="w-full text-center text-sm font-bold text-gray-500 hover:text-gray-900 dark:hover:text-white transition-colors">
-            &larr; Back to Board
+            &larr; Back to List
           </Link>
         </div>
       </div>
@@ -162,13 +166,11 @@ export default function JobDetails() {
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Request Origin</h3>
               <div className="space-y-1">
                 <p className="text-base font-bold text-gray-900 dark:text-white">{job.client?.name || 'System Admin'}</p>
-                <p className="text-sm font-medium text-blue-600 dark:text-blue-400">{job.client?.email || 'N/A'}</p>
                 <p className="text-xs font-bold text-gray-400 mt-2">Logged: {new Date(job.created_at).toLocaleDateString()}</p>
               </div>
             </div>
           </div>
 
-          {/* --- NEW SCHEDULE CARD --- */}
           <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60 flex flex-col sm:flex-row gap-6 divide-y sm:divide-y-0 sm:divide-x divide-gray-100 dark:divide-gray-800">
             <div className="flex-1">
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-2">Scheduled Start</h3>
@@ -201,37 +203,40 @@ export default function JobDetails() {
             </div>
           </div>
 
-          <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60">
-            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Log Progress Update</h3>
-            <form onSubmit={handleStatusUpdate} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Update Status To:</label>
-                  <CustomSelect 
-                    options={[
-                      { value: 'Requested', label: 'Requested' }, { value: 'Scheduled', label: 'Scheduled' }, 
-                      { value: 'In-Progress', label: 'In-Progress' }, { value: 'On-Hold', label: 'On-Hold' }, 
-                      { value: 'Completed', label: 'Completed' }, { value: 'Closed', label: 'Closed' }
-                    ]}
-                    value={newStatus} onChange={(e) => setNewStatus(e.target.value)} placement="top"
-                  />
+          {/* Only Admins and Employees see the Log Progress Form */}
+          {!isClient && (
+            <div className="bg-white dark:bg-gray-900 rounded-[1.5rem] p-6 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 dark:border-gray-800/60">
+              <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">Log Progress Update</h3>
+              <form onSubmit={handleStatusUpdate} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Update Status To:</label>
+                    <CustomSelect 
+                      options={[
+                        { value: 'Requested', label: 'Requested' }, { value: 'Scheduled', label: 'Scheduled' }, 
+                        { value: 'In-Progress', label: 'In-Progress' }, { value: 'On-Hold', label: 'On-Hold' }, 
+                        { value: 'Completed', label: 'Completed' }, { value: 'Closed', label: 'Closed' }
+                      ]}
+                      value={newStatus} onChange={(e) => setNewStatus(e.target.value)} placement="top"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Service Note (Required for logs)</label>
+                    <textarea 
+                      rows="2" required value={updateNote} onChange={(e) => setUpdateNote(e.target.value)}
+                      placeholder="Describe parts ordered, work completed, or delays..."
+                      className="block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                    ></textarea>
+                  </div>
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">Service Note (Required for logs)</label>
-                  <textarea 
-                    rows="2" required value={updateNote} onChange={(e) => setUpdateNote(e.target.value)}
-                    placeholder="Describe parts ordered, work completed, or delays..."
-                    className="block w-full rounded-xl border border-gray-200 px-4 py-3 text-sm dark:bg-gray-800 dark:border-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
-                  ></textarea>
+                <div className="flex justify-end pt-2">
+                  <button type="submit" disabled={isUpdating} className="rounded-xl bg-blue-600 px-8 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-all hover:shadow-md">
+                    {isUpdating ? 'Logging...' : 'Submit Update'}
+                  </button>
                 </div>
-              </div>
-              <div className="flex justify-end pt-2">
-                <button type="submit" disabled={isUpdating} className="rounded-xl bg-blue-600 px-8 py-3 text-sm font-bold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50 transition-all hover:shadow-md">
-                  {isUpdating ? 'Logging...' : 'Submit Update'}
-                </button>
-              </div>
-            </form>
-          </div>
+              </form>
+            </div>
+          )}
         </div>
 
         {/* Right Column: Timeline */}

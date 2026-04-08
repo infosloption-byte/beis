@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('attachments', function (Blueprint $table) {
             $table->id();
-            $table->morphs('attachable'); // Creates attachable_id and attachable_type
+            $table->morphs('attachable'); 
             $table->string('file_path');
             $table->string('file_name')->nullable();
             $table->string('mime_type')->nullable();

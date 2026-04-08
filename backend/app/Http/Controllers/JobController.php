@@ -16,6 +16,7 @@ class JobController extends Controller
         
         $query = Job::with(['property', 'client', 'technician', 'attachments'])->latest();
 
+        // 1. Filter jobs by role
         if ($user->hasRole('Client')) {
             $query->where('client_id', $user->id);
         } elseif ($user->hasRole('Employee')) {
@@ -27,6 +28,11 @@ class JobController extends Controller
 
     public function store(Request $request)
     {
+        // Only Admins can create (Checked via middleware usually, but good to be explicit)
+        if (!$request->user()->hasRole('Admin')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
         $validated = $request->validate([
             'property_id' => 'required|exists:properties,id',
             'client_id' => 'required|exists:users,id',
@@ -35,8 +41,8 @@ class JobController extends Controller
             'description' => 'required|string',
             'priority' => 'required|in:Low,Medium,High,Emergency',
             'status' => 'required|string',
-            'start_date' => 'nullable|date', // <-- Added validation
-            'end_date' => 'nullable|date|after_or_equal:start_date', // <-- Added validation
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
             'images.*' => 'nullable|image|max:5120',
         ]);
 
@@ -60,13 +66,21 @@ class JobController extends Controller
         return response()->json(['message' => 'Job created', 'job' => $job->load('attachments')], 201);
     }
 
-    public function show(Job $job)
+    public function show(Request $request, Job $job)
     {
+        $user = $request->user();
+        
+        // Security checks
+        if ($user->hasRole('Client') && $job->client_id !== $user->id) return response()->json(['message' => 'Unauthorized'], 403);
+        if ($user->hasRole('Employee') && $job->assigned_to !== $user->id) return response()->json(['message' => 'Unauthorized'], 403);
+
         return response()->json($job->load(['property', 'client', 'technician', 'attachments', 'timeline.user']));
     }
 
     public function update(Request $request, Job $job)
     {
+        if (!$request->user()->hasRole('Admin')) return response()->json(['message' => 'Unauthorized'], 403);
+
         $validated = $request->validate([
             'property_id' => 'required|exists:properties,id',
             'client_id' => 'required|exists:users,id',
@@ -75,8 +89,8 @@ class JobController extends Controller
             'description' => 'required|string',
             'priority' => 'required|in:Low,Medium,High,Emergency',
             'status' => 'required|string',
-            'start_date' => 'nullable|date', // <-- Added validation
-            'end_date' => 'nullable|date|after_or_equal:start_date', // <-- Added validation
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
             'images.*' => 'nullable|image|max:5120',
             'deleted_attachments' => 'nullable|array',
         ]);
@@ -108,6 +122,15 @@ class JobController extends Controller
 
     public function updateStatus(Request $request, Job $job)
     {
+        $user = $request->user();
+        
+        // Only Admins or the specifically assigned Employee can update status
+        if (!$user->hasRole('Admin') && ($user->hasRole('Employee') && $job->assigned_to !== $user->id)) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        // Clients cannot update status
+        if ($user->hasRole('Client')) return response()->json(['message' => 'Unauthorized'], 403);
+
         $validated = $request->validate([
             'status' => 'required|string',
             'note' => 'nullable|string'
@@ -126,6 +149,8 @@ class JobController extends Controller
 
     public function assignTechnician(Request $request, Job $job)
     {
+        if (!$request->user()->hasRole('Admin')) return response()->json(['message' => 'Unauthorized'], 403);
+
         $validated = $request->validate([
             'assigned_to' => 'required|exists:users,id'
         ]);

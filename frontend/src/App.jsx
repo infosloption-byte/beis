@@ -10,6 +10,9 @@ import Dashboard from './pages/Dashboard';
 import PropertyDetails from './pages/PropertyDetails';
 import UserDetails from './pages/UserDetails';
 import Reports from './pages/Reports';
+import KanbanBoard from './pages/KanbanBoard';
+import JobCalendar from './pages/JobCalendar';
+import Timesheets from './pages/Timesheets';
 
 function App() {
   return (
@@ -30,10 +33,15 @@ function App() {
           <Route path="/jobs" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetails />} />
 
+          <Route path="/kanban" element={<KanbanBoard />} />
+          <Route path="/calendar" element={<JobCalendar />} />
+
           <Route path="/users" element={<Users />} />
           <Route path="/users/:id" element={<UserDetails />} />
 
           <Route path="/reports" element={<Reports />} />
+
+          <Route path="/timesheets" element={<Timesheets />} />
         </Route>
       </Route>
     </Routes>

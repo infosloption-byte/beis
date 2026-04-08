@@ -21,6 +21,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
 
+    // Dashboard Routes
+    Route::get('/dashboard/operations', [DashboardController::class, 'index']); // Admin
+    Route::get('/dashboard/employee', [DashboardController::class, 'employee']); // Employee
+    Route::get('/dashboard/client', [DashboardController::class, 'client']); // Client
+    Route::get('/dashboard/general', [DashboardController::class, 'general']); // Reports
+
     Route::patch('jobs/{job}/status', [JobController::class, 'updateStatus']);
 
     // API Resource routes will automatically map index, store, show, update, destroy
@@ -35,4 +41,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/work-orders', [\App\Http\Controllers\ReportController::class, 'workOrders']);
     Route::get('/reports/technicians', [\App\Http\Controllers\ReportController::class, 'technicians']);
     Route::get('/reports/clients-sites', [\App\Http\Controllers\ReportController::class, 'clientsAndSites']);
+
+    Route::get('/timesheets', [\App\Http\Controllers\TimesheetController::class, 'index']);
 });
